@@ -5,7 +5,7 @@ COPY frontend/package*.json ./
 RUN npm install
 
 COPY frontend/ ./
-RUN npx vite build
+RUN chmod -R 755 node_modules/.bin && npx vite build
 
 FROM python:3.12-slim
 WORKDIR /app
