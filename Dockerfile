@@ -1,7 +1,7 @@
 FROM node:22-bookworm AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm install && chmod -R +x node_modules/.bin
 COPY frontend/ ./
 RUN npm run build
 
