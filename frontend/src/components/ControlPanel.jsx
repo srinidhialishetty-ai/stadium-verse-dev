@@ -16,6 +16,9 @@ export default function ControlPanel({
   route,
   recommendations,
   phase,
+  guidedMode,
+  onToggleGuidance,
+  liveAmenitySummary,
   alerts,
   onRecalculate,
   aiAdvice
@@ -66,6 +69,10 @@ export default function ControlPanel({
         Recalculate Route
       </button>
 
+      <button className="primary-btn" onClick={onToggleGuidance} type="button">
+        {guidedMode ? 'End Guided Mode' : 'Start Guided Mode'}
+      </button>
+
       {route?.reroute_suggestion && (
         <button className="primary-btn" onClick={onRecalculate} type="button">
           Accept Reroute Suggestion
@@ -79,11 +86,15 @@ export default function ControlPanel({
         </div>
         {route ? (
           <>
-            <p className="route-chain">{route.labels.join('  •  ')}</p>
+            <p className="route-chain">{route.labels.join('  ->  ')}</p>
             <div className="metric-grid">
               <div>
                 <span>Effort</span>
                 <strong>{route.estimated_total_effort.toFixed(1)}</strong>
+              </div>
+              <div>
+                <span>Walk Time</span>
+                <strong>{route.walking_time_minutes.toFixed(1)} min</strong>
               </div>
               <div>
                 <span>Avg Congestion</span>
@@ -93,7 +104,12 @@ export default function ControlPanel({
                 <span>Wait Impact</span>
                 <strong>{route.estimated_wait_impact.toFixed(1)} min</strong>
               </div>
+              <div>
+                <span>Crowd Score</span>
+                <strong>{route.congestion_score.toFixed(0)}</strong>
+              </div>
             </div>
+            <p className="muted">{route.selection_reason}</p>
           </>
         ) : (
           <p className="muted">Select two points to generate a route.</p>
@@ -112,8 +128,27 @@ export default function ControlPanel({
               <p>{item.reasoning}</p>
               <div className="amenity-metrics">
                 <span>{item.walk_distance}m walk</span>
+                <span>{item.walking_time_minutes}m walk time</span>
                 <span>{item.effective_wait_time}m wait</span>
-                <span>{Math.round(item.congestion * 100)}% busy</span>
+                <span>{item.busyness_percent}% busy</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="panel-section glass inset">
+        <h2>Live Venue Pressure</h2>
+        <div className="amenity-list">
+          {liveAmenitySummary.map((node) => (
+            <div className="amenity-card" key={node.id}>
+              <div>
+                <span className="mini-label">{node.type.toUpperCase()}</span>
+                <strong>{node.label}</strong>
+              </div>
+              <div className="amenity-metrics">
+                <span>{node.sim_wait_time || node.base_wait_time}m wait</span>
+                <span>{node.busyness_percent || Math.round((node.sim_congestion || 0) * 100)}% busy</span>
               </div>
             </div>
           ))}

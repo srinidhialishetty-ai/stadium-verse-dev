@@ -12,6 +12,7 @@ const colorsByType = {
 }
 
 const imageByType = {
+  seat: '/stadium-assets/seating.jpeg',
   food: '/stadium-assets/food-stand.jpeg',
   restroom: '/stadium-assets/restroom.jpeg',
   vip: '/stadium-assets/vip-lounge.jpeg'
@@ -25,19 +26,25 @@ const gateShellPositions = [
 ]
 
 const sectionSeatBands = {
-  section_101: { start: 2.15, end: 2.48, radius: 28, rows: 4, rowDepth: 2.2, seatsPerRow: 11, baseY: 4.8 },
-  section_102: { start: 1.8, end: 2.12, radius: 27, rows: 4, rowDepth: 2.2, seatsPerRow: 10, baseY: 4.8 },
-  section_103: { start: 1.45, end: 1.77, radius: 27, rows: 4, rowDepth: 2.2, seatsPerRow: 10, baseY: 4.8 },
-  section_104: { start: 1.08, end: 1.4, radius: 28, rows: 4, rowDepth: 2.2, seatsPerRow: 11, baseY: 4.8 },
-  section_105: { start: 0.65, end: 1.0, radius: 29, rows: 4, rowDepth: 2.2, seatsPerRow: 12, baseY: 4.8 },
-  section_106: { start: -0.02, end: 0.32, radius: 29, rows: 4, rowDepth: 2.2, seatsPerRow: 12, baseY: 4.8 },
-  section_107: { start: -0.42, end: -0.08, radius: 28, rows: 4, rowDepth: 2.2, seatsPerRow: 11, baseY: 4.8 },
-  section_108: { start: -0.8, end: -0.48, radius: 27, rows: 4, rowDepth: 2.2, seatsPerRow: 10, baseY: 4.8 },
-  section_109: { start: -1.18, end: -0.86, radius: 27, rows: 4, rowDepth: 2.2, seatsPerRow: 10, baseY: 4.8 },
-  section_110: { start: -1.56, end: -1.24, radius: 28, rows: 4, rowDepth: 2.2, seatsPerRow: 11, baseY: 4.8 },
-  section_111: { start: -2.26, end: -1.72, radius: 34, rows: 4, rowDepth: 2.2, seatsPerRow: 12, baseY: 10.2 },
-  section_112: { start: 2.56, end: 3.08, radius: 34, rows: 4, rowDepth: 2.2, seatsPerRow: 12, baseY: 10.2 }
+  section_101: { start: 2.45, end: 2.8, radius: 33, rows: 4, rowDepth: 2.1, seatsPerRow: 11, baseY: 5.2, centerX: 0, centerZ: 0 },
+  section_102: { start: 2.05, end: 2.38, radius: 34.5, rows: 4, rowDepth: 2.1, seatsPerRow: 10, baseY: 6.3, centerX: 0, centerZ: 0 },
+  section_103: { start: 1.68, end: 1.98, radius: 35.5, rows: 4, rowDepth: 2.1, seatsPerRow: 10, baseY: 7.2, centerX: 0, centerZ: 0 },
+  section_104: { start: 1.16, end: 1.46, radius: 35.5, rows: 4, rowDepth: 2.1, seatsPerRow: 10, baseY: 7.2, centerX: 0, centerZ: 0 },
+  section_105: { start: 0.78, end: 1.1, radius: 34.5, rows: 4, rowDepth: 2.1, seatsPerRow: 10, baseY: 6.3, centerX: 0, centerZ: 0 },
+  section_106: { start: 0.36, end: 0.72, radius: 33, rows: 4, rowDepth: 2.1, seatsPerRow: 11, baseY: 5.2, centerX: 0, centerZ: 0 },
+  section_107: { start: -0.02, end: 0.3, radius: 42, rows: 4, rowDepth: 2.15, seatsPerRow: 10, baseY: 10.8, centerX: 0, centerZ: 0 },
+  section_108: { start: -0.46, end: -0.12, radius: 43, rows: 4, rowDepth: 2.15, seatsPerRow: 10, baseY: 12.4, centerX: 0, centerZ: 0 },
+  section_109: { start: 3.28, end: 3.62, radius: 43, rows: 4, rowDepth: 2.15, seatsPerRow: 10, baseY: 12.4, centerX: 0, centerZ: 0 },
+  section_110: { start: 2.86, end: 3.2, radius: 42, rows: 4, rowDepth: 2.15, seatsPerRow: 10, baseY: 10.8, centerX: 0, centerZ: 0 },
+  section_111: { start: -0.9, end: -0.5, radius: 50, rows: 4, rowDepth: 2.2, seatsPerRow: 11, baseY: 16.2, centerX: 0, centerZ: 0 },
+  section_112: { start: 3.72, end: 4.1, radius: 50, rows: 4, rowDepth: 2.2, seatsPerRow: 11, baseY: 16.2, centerX: 0, centerZ: 0 }
 }
+
+const continuousSeatBands = [
+  { key: 'lower-ring', start: -1.04, end: 4.18, radius: 30.5, rows: 5, rowDepth: 1.75, seatsPerRow: 74, baseY: 4.1, centerX: 0, centerZ: 0 },
+  { key: 'mid-ring', start: -1.02, end: 4.16, radius: 39.2, rows: 5, rowDepth: 1.85, seatsPerRow: 88, baseY: 9.5, centerX: 0, centerZ: 0 },
+  { key: 'upper-ring', start: -0.98, end: 4.12, radius: 48.8, rows: 5, rowDepth: 1.95, seatsPerRow: 98, baseY: 15.2, centerX: 0, centerZ: 0 }
+]
 
 function interpolateRoute(points, progress) {
   if (points.length < 2) return points[0] || [0, 0, 0]
@@ -65,7 +72,7 @@ function generateSectionSeats(config) {
       const t = config.seatsPerRow === 1 ? 0.5 : index / (config.seatsPerRow - 1)
       const angle = config.start + (config.end - config.start) * t
       seats.push({
-        position: [Math.cos(angle) * radius, y, Math.sin(angle) * radius],
+        position: [config.centerX + Math.cos(angle) * radius, y, config.centerZ + Math.sin(angle) * radius],
         rotation: -angle + Math.PI / 2
       })
     }
@@ -115,7 +122,6 @@ function ImagePanel({ node, routeActive }) {
 
   const width = node.type === 'vip' ? 8.2 : 6.4
   const height = node.type === 'vip' ? 4.8 : 4.2
-
   return (
     <Billboard
       follow
@@ -131,7 +137,38 @@ function ImagePanel({ node, routeActive }) {
         </mesh>
         <mesh>
           <planeGeometry args={[width, height]} />
-          <meshBasicMaterial map={texture} toneMapped={false} />
+          <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh rotation={[0, Math.PI, 0]}>
+          <planeGeometry args={[width, height]} />
+          <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+    </Billboard>
+  )
+}
+
+function ZoneImagePanel({ imageType, position, width = 9.4, height = 5.8 }) {
+  const texture = useTexture(imageByType[imageType])
+  if (!texture) return null
+
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 8
+
+  return (
+    <Billboard follow lockX={false} lockY={false} lockZ={false} position={position}>
+      <group>
+        <mesh position={[0, 0, -0.08]}>
+          <planeGeometry args={[width + 0.45, height + 0.45]} />
+          <meshBasicMaterial color="#0d1a2d" transparent opacity={0.95} toneMapped={false} />
+        </mesh>
+        <mesh>
+          <planeGeometry args={[width, height]} />
+          <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh rotation={[0, Math.PI, 0]}>
+          <planeGeometry args={[width, height]} />
+          <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
         </mesh>
       </group>
     </Billboard>
@@ -177,6 +214,10 @@ function StadiumModel({ nodes, routeIds, accessibleHighlights, guidedMode }) {
   const seatLayouts = useMemo(
     () => seatNodes.map((node) => ({ node, seats: generateSectionSeats(sectionSeatBands[node.id]) })).filter((entry) => entry.seats),
     [seatNodes]
+  )
+  const continuousSeatLayouts = useMemo(
+    () => continuousSeatBands.map((band) => ({ key: band.key, seats: generateSectionSeats(band) })),
+    []
   )
 
   return (
@@ -250,6 +291,23 @@ function StadiumModel({ nodes, routeIds, accessibleHighlights, guidedMode }) {
         )
       })}
 
+      {continuousSeatLayouts.map(({ key, seats }, bandIndex) => (
+        <group key={key}>
+          {seats.map((seat, index) => (
+            <StadiumSeat
+              key={`${key}-${index}`}
+              position={seat.position}
+              rotation={seat.rotation}
+              highlighted={false}
+            />
+          ))}
+          <mesh position={[0, 3.6 + bandIndex * 5.55, 0]}>
+            <torusGeometry args={[31.8 + bandIndex * 8.7, 0.28, 12, 120, 5.22]} />
+            <meshStandardMaterial color="#294563" emissive="#14345a" emissiveIntensity={0.14} />
+          </mesh>
+        </group>
+      ))}
+
       {seatLayouts.map(({ node, seats }) => (
         <group key={node.id}>
           {seats.map((seat, index) => (
@@ -267,6 +325,9 @@ function StadiumModel({ nodes, routeIds, accessibleHighlights, guidedMode }) {
           <Label text={node.label} position={[node.position[0], node.position[1] + sectionLabelYOffset(node), node.position[2]]} variant="section" distanceFactor={12} />
         </group>
       ))}
+
+      <ZoneImagePanel imageType="seat" position={[-22, 15.5, 26]} width={8.5} height={5.2} />
+      <ZoneImagePanel imageType="seat" position={[22, 15.5, -26]} width={8.5} height={5.2} />
 
       {gateNodes.map((node) => (
         <Label

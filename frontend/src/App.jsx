@@ -18,13 +18,24 @@ export default function App() {
   const [aiAdvice, setAiAdvice] = useState(null)
   const [alerts, setAlerts] = useState(defaultAlerts)
   const [error, setError] = useState('')
+  const [guidedMode, setGuidedMode] = useState(false)
+  const [lastAutoRerouteTick, setLastAutoRerouteTick] = useState(-1)
 
   const nonConnectorNodes = useMemo(
     () => graph.nodes.filter((node) => node.type !== 'connector'),
     [graph.nodes]
   )
 
-  async function refreshRoute(start = selectedStart, end = selectedEnd, isAccessible = accessible) {
+  const liveAmenitySummary = useMemo(
+    () =>
+      graph.nodes
+        .filter((node) => ['food', 'restroom', 'vip'].includes(node.type))
+        .sort((a, b) => (b.sim_congestion || 0) - (a.sim_congestion || 0))
+        .slice(0, 3),
+    [graph.nodes]
+  )
+
+  async function refreshRoute(start = selectedStart, end = selectedEnd, isAccessible = accessible, options = {}) {
     try {
       const [routeData, foodRecommendations, restroomRecommendations] = await Promise.all([
         fetchRoute(start, end, isAccessible),
@@ -47,7 +58,18 @@ export default function App() {
 
       const nextAlerts = [...defaultAlerts]
       if (routeData.reroute_suggestion) nextAlerts.unshift(routeData.reroute_suggestion)
+      if (options.auto && routeData.reroute_suggestion) {
+        nextAlerts.unshift(`Auto-reroute: ${routeData.selection_reason}`)
+        setLastAutoRerouteTick(graph.tick)
+      } else if (guidedMode && !routeData.reroute_suggestion) {
+        nextAlerts.unshift('Current route remains optimal.')
+      }
       if (graph.phase === 'Halftime Spike') nextAlerts.unshift('Halftime traffic is concentrating around food and restroom zones.')
+      if (graph.phase === 'Entry Rush') nextAlerts.unshift('Entry gates are busiest right now. Inner concourses are still smoothing out.')
+      if (graph.phase === 'Exit Surge') nextAlerts.unshift('Exit pressure is rising near the south concourse and gate corridors.')
+      if (foodRecommendations[0] && foodRecommendations[1]) {
+        nextAlerts.unshift(`${foodRecommendations[0].label} is currently faster than ${foodRecommendations[1].label}.`)
+      }
       setAlerts(nextAlerts.slice(0, 4))
     } catch (routeError) {
       setError(routeError.message)
@@ -74,7 +96,8 @@ export default function App() {
 
   useEffect(() => {
     if (graph.nodes.length) {
-      refreshRoute()
+      const shouldAutoReroute = guidedMode && graph.tick !== lastAutoRerouteTick
+      refreshRoute(selectedStart, selectedEnd, accessible, { auto: shouldAutoReroute })
     }
   }, [graph.tick])
 
@@ -92,6 +115,9 @@ export default function App() {
         route={route}
         recommendations={recommendations}
         phase={graph.phase}
+        guidedMode={guidedMode}
+        onToggleGuidance={() => setGuidedMode((current) => !current)}
+        liveAmenitySummary={liveAmenitySummary}
         alerts={error ? [error, ...alerts] : alerts}
         onRecalculate={() => refreshRoute()}
         aiAdvice={aiAdvice}

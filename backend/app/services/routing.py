@@ -50,7 +50,10 @@ class RoutingService:
 
     def _edge_cost(self, edge: dict, end_id: str) -> float:
         destination_wait = self.nodes[end_id].get("sim_wait_time", self.nodes[end_id]["base_wait_time"])
-        edge_penalty = edge["distance"] * (1 + edge["congestion"] * 1.8)
+        accessibility_penalty = 0.0
+        if not edge.get("accessible", True):
+            accessibility_penalty += 25
+        edge_penalty = edge["distance"] * (1 + edge["congestion"] * 1.8) + accessibility_penalty
         target_type = self.nodes[edge["target"]]["type"]
         if edge["target"] != end_id and target_type in {"food", "restroom", "vip", "gate"}:
             edge_penalty += 18
@@ -97,13 +100,16 @@ class RoutingService:
     def shortest_path(self, start: str, end: str, accessible: bool = False) -> dict:
         path, effort = self._run_path(start, end, accessible)
         route_edges = self._edges_for_path(path)
+        total_distance = round(sum(edge["distance"] for edge in route_edges), 1)
         avg_congestion = round(sum(edge["congestion"] for edge in route_edges) / max(1, len(route_edges)), 2)
+        walking_time = round(total_distance / 68, 1)
         wait_impact = round(
             self.nodes[end].get("sim_wait_time", self.nodes[end]["base_wait_time"])
             if self.nodes[end]["type"] in {"food", "restroom", "gate"}
             else 0.0,
             1,
         )
+        congestion_score = round(avg_congestion * 100, 1)
         baseline_effort = 0.0
         try:
             _, baseline_effort = self._run_path(start, end, accessible, use_base=True)
@@ -113,12 +119,28 @@ class RoutingService:
         if baseline_effort and effort > baseline_effort * 1.2:
             reroute = "Current route has degraded. Switching to a less crowded path is recommended."
 
+        explanation_parts = []
+        if avg_congestion < 0.35:
+            explanation_parts.append("it keeps you on low-pressure concourses")
+        elif avg_congestion < 0.6:
+            explanation_parts.append("it balances crowd pressure with a direct walk")
+        else:
+            explanation_parts.append("it avoids even worse congestion on shorter alternatives")
+        if wait_impact:
+            explanation_parts.append(f"it limits destination queue exposure to about {wait_impact:.1f} minutes")
+        if accessible:
+            explanation_parts.append("it stays on accessible paths")
+        selection_reason = "Selected because " + ", ".join(explanation_parts) + "."
+
         return {
             "path": path,
             "labels": [self.nodes[node_id]["label"] for node_id in path],
+            "walking_time_minutes": walking_time,
             "estimated_total_effort": effort,
+            "congestion_score": congestion_score,
             "average_congestion": avg_congestion,
             "estimated_wait_impact": wait_impact,
+            "selection_reason": selection_reason,
             "reroute_suggestion": reroute,
         }
 
@@ -156,9 +178,14 @@ class RoutingService:
                     "type": candidate["type"],
                     "score": score,
                     "walk_distance": round(sum(edge["distance"] for edge in self._edges_for_path(route["path"])), 1),
+                    "walking_time_minutes": route["walking_time_minutes"],
                     "effective_wait_time": round(wait_time, 1),
+                    "busyness_percent": int(round(candidate.get("sim_congestion", 0.2) * 100)),
                     "congestion": route["average_congestion"],
-                    "reasoning": f"{candidate['label']} balances travel effort, queue time, and corridor congestion better than nearby options.",
+                    "reasoning": (
+                        f"{candidate['label']} is the best option right now because it trims total effort with "
+                        f"{round(wait_time, 1)} min wait and a {int(round(route['average_congestion'] * 100))}% crowd corridor."
+                    ),
                 }
             )
 

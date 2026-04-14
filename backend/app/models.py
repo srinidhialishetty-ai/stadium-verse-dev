@@ -30,9 +30,12 @@ class StadiumEdge(BaseModel):
 class RouteResponse(BaseModel):
     path: list[str]
     labels: list[str]
+    walking_time_minutes: float
     estimated_total_effort: float
+    congestion_score: float
     average_congestion: float
     estimated_wait_impact: float
+    selection_reason: str
     reroute_suggestion: str | None = None
 
 
@@ -42,7 +45,9 @@ class RecommendationItem(BaseModel):
     type: Literal["food", "restroom"]
     score: float
     walk_distance: float
+    walking_time_minutes: float
     effective_wait_time: float
+    busyness_percent: int
     congestion: float
     reasoning: str
 
