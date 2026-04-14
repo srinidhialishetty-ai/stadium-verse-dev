@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchAdvice, fetchGraph, fetchRecommendations, fetchRoute, openSimulationSocket } from './api'
 import ControlPanel from './components/ControlPanel'
 import StadiumScene from './components/StadiumScene'
@@ -20,6 +20,8 @@ export default function App() {
   const [error, setError] = useState('')
   const [guidedMode, setGuidedMode] = useState(false)
   const [lastAutoRerouteTick, setLastAutoRerouteTick] = useState(-1)
+  const previousRouteRef = useRef(null)
+  const previousPhaseRef = useRef('Loading')
 
   const nonConnectorNodes = useMemo(
     () => graph.nodes.filter((node) => node.type !== 'connector'),
@@ -35,6 +37,16 @@ export default function App() {
     [graph.nodes]
   )
 
+  const hottestCorridor = useMemo(() => {
+    if (!graph.edges.length) return null
+    return [...graph.edges].sort((a, b) => (b.congestion || 0) - (a.congestion || 0))[0]
+  }, [graph.edges])
+
+  const hottestAmenity = useMemo(() => {
+    if (!liveAmenitySummary.length) return null
+    return liveAmenitySummary[0]
+  }, [liveAmenitySummary])
+
   async function refreshRoute(start = selectedStart, end = selectedEnd, isAccessible = accessible, options = {}) {
     try {
       const [routeData, foodRecommendations, restroomRecommendations] = await Promise.all([
@@ -42,6 +54,13 @@ export default function App() {
         fetchRecommendations('food', start, isAccessible),
         fetchRecommendations('restroom', start, isAccessible)
       ])
+      const previousRoute = previousRouteRef.current
+      const pathChanged = previousRoute && previousRoute.path.join('|') !== routeData.path.join('|')
+      const congestionJump = previousRoute ? routeData.average_congestion - previousRoute.average_congestion : 0
+      const shouldAutoReroute =
+        options.auto &&
+        (pathChanged || congestionJump > 0.12 || Boolean(routeData.reroute_suggestion))
+
       setRoute(routeData)
       setRecommendations([...foodRecommendations.slice(0, 2), ...restroomRecommendations.slice(0, 1)])
       setError('')
@@ -58,19 +77,33 @@ export default function App() {
 
       const nextAlerts = [...defaultAlerts]
       if (routeData.reroute_suggestion) nextAlerts.unshift(routeData.reroute_suggestion)
-      if (options.auto && routeData.reroute_suggestion) {
-        nextAlerts.unshift(`Auto-reroute: ${routeData.selection_reason}`)
+      if (shouldAutoReroute) {
+        nextAlerts.unshift('Heavy congestion detected ahead. Rerouting to faster path.')
+        nextAlerts.unshift('Switching route to reduce delay.')
+        nextAlerts.unshift(routeData.selection_reason)
         setLastAutoRerouteTick(graph.tick)
       } else if (guidedMode && !routeData.reroute_suggestion) {
-        nextAlerts.unshift('Current route remains optimal.')
+        nextAlerts.unshift('You are on the optimal path.')
       }
-      if (graph.phase === 'Halftime Spike') nextAlerts.unshift('Halftime traffic is concentrating around food and restroom zones.')
-      if (graph.phase === 'Entry Rush') nextAlerts.unshift('Entry gates are busiest right now. Inner concourses are still smoothing out.')
-      if (graph.phase === 'Exit Surge') nextAlerts.unshift('Exit pressure is rising near the south concourse and gate corridors.')
+      if (previousPhaseRef.current !== graph.phase) {
+        nextAlerts.unshift(`${graph.phase} is reshaping crowd pressure across the venue.`)
+      }
+      if (graph.phase === 'Halftime Spike') nextAlerts.unshift('Queue spike detected around food and restroom zones.')
+      if (graph.phase === 'Entry Rush') nextAlerts.unshift('Congestion rising near the entry gates and outer concourses.')
+      if (graph.phase === 'Exit Surge') nextAlerts.unshift('Exit pressure is climbing near the south concourse and gate corridors.')
+      if (graph.phase === 'Late Match Dispersal') nextAlerts.unshift('Crowd movement is drifting from seating into the main concourse.')
       if (foodRecommendations[0] && foodRecommendations[1]) {
-        nextAlerts.unshift(`${foodRecommendations[0].label} is currently faster than ${foodRecommendations[1].label}.`)
+        nextAlerts.unshift(`${foodRecommendations[0].label} is faster than ${foodRecommendations[1].label} right now.`)
+      }
+      if (hottestCorridor && (hottestCorridor.congestion || 0) > 0.72) {
+        nextAlerts.unshift(`Congestion rising near ${hottestCorridor.source.replaceAll('_', ' ')} to ${hottestCorridor.target.replaceAll('_', ' ')}.`)
+      }
+      if (hottestAmenity && (hottestAmenity.sim_wait_time || hottestAmenity.base_wait_time || 0) >= 6) {
+        nextAlerts.unshift(`Queue spike detected at ${hottestAmenity.label}.`)
       }
       setAlerts(nextAlerts.slice(0, 4))
+      previousRouteRef.current = routeData
+      previousPhaseRef.current = graph.phase
     } catch (routeError) {
       setError(routeError.message)
       setRoute(null)
@@ -79,7 +112,17 @@ export default function App() {
 
   function handleGuidanceComplete() {
     setGuidedMode(false)
+    setLastAutoRerouteTick(-1)
     setAlerts((current) => ['Guided navigation complete. You have arrived at your destination.', ...current].slice(0, 4))
+  }
+
+  function handleToggleGuidance() {
+    setGuidedMode((current) => {
+      if (current) {
+        setLastAutoRerouteTick(-1)
+      }
+      return !current
+    })
   }
 
   useEffect(() => {
@@ -121,7 +164,7 @@ export default function App() {
         recommendations={recommendations}
         phase={graph.phase}
         guidedMode={guidedMode}
-        onToggleGuidance={() => setGuidedMode((current) => !current)}
+        onToggleGuidance={handleToggleGuidance}
         liveAmenitySummary={liveAmenitySummary}
         alerts={error ? [error, ...alerts] : alerts}
         onRecalculate={() => refreshRoute()}

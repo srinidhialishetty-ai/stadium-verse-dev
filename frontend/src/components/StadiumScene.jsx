@@ -320,21 +320,38 @@ function StadiumModel({
         const heat = edge.congestion ?? 0
         const { midpoint, length, angle } = edgeTransform(source.position, target.position)
         return (
-          <mesh
-            key={`${routeKey}-${index}`}
-            position={[midpoint.x, 0.35, midpoint.z]}
-            rotation={[-Math.PI / 2, 0, angle]}
-            renderOrder={onRoute ? 10 : 2}
-          >
-            <planeGeometry args={[length, onRoute ? 2.3 : 1.5]} />
-            <meshBasicMaterial
-              color={onRoute ? mixColors('#a5f3ff', heatColor(heat), 0.2) : heatColor(heat)}
-              transparent
-              opacity={guidedMode ? (onRoute ? 0.88 : 0.16) : (onRoute ? 0.78 : 0.42)}
-              toneMapped={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
+          <group key={`${routeKey}-${index}`}>
+            <mesh
+              position={[midpoint.x, 0.35, midpoint.z]}
+              rotation={[-Math.PI / 2, 0, angle]}
+              renderOrder={onRoute ? 10 : 2}
+            >
+              <planeGeometry args={[length, onRoute ? 2.4 : 1.5]} />
+              <meshBasicMaterial
+                color={heatColor(heat)}
+                transparent
+                opacity={guidedMode ? (onRoute ? 0.5 : 0.16) : (onRoute ? 0.42 : 0.42)}
+                toneMapped={false}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+            {onRoute && (
+              <mesh
+                position={[midpoint.x, 0.48, midpoint.z]}
+                rotation={[-Math.PI / 2, 0, angle]}
+                renderOrder={14}
+              >
+                <planeGeometry args={[length, 1.05]} />
+                <meshBasicMaterial
+                  color={heatColor(heat)}
+                  transparent
+                  opacity={0.98}
+                  toneMapped={false}
+                  side={THREE.DoubleSide}
+                />
+              </mesh>
+            )}
+          </group>
         )
       })}
 
@@ -513,7 +530,7 @@ function StadiumModel({
 
       {routeCurve && (
         <Tube args={[routeCurve, 64, 0.7, 12, false]} renderOrder={15}>
-          <meshBasicMaterial color="#a5f3ff" transparent opacity={0.98} toneMapped={false} />
+          <meshBasicMaterial color="#dffcff" transparent opacity={0.2} toneMapped={false} />
         </Tube>
       )}
 

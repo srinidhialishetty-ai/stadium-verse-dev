@@ -116,21 +116,26 @@ class RoutingService:
         except GraphError:
             baseline_effort = 0.0
         reroute = None
-        if baseline_effort and effort > baseline_effort * 1.2:
-            reroute = "Current route has degraded. Switching to a less crowded path is recommended."
+        high_congestion_edges = sum(1 for edge in route_edges if edge["congestion"] >= 0.67)
+        moderate_congestion_edges = sum(1 for edge in route_edges if 0.34 <= edge["congestion"] < 0.67)
+        time_saved = round(max(0.0, (effort - baseline_effort) / 10), 1) if baseline_effort else 0.0
+        if baseline_effort and (effort > baseline_effort * 1.2 or high_congestion_edges >= 2):
+            reroute = "Heavy congestion detected ahead. Rerouting to faster path."
 
         explanation_parts = []
-        if avg_congestion < 0.35:
-            explanation_parts.append("it keeps you on low-pressure concourses")
-        elif avg_congestion < 0.6:
-            explanation_parts.append("it balances crowd pressure with a direct walk")
+        if high_congestion_edges:
+            explanation_parts.append(f"avoids {high_congestion_edges} high congestion corridor{'s' if high_congestion_edges > 1 else ''}")
+        elif moderate_congestion_edges:
+            explanation_parts.append(f"cuts through only {moderate_congestion_edges} moderate traffic segment{'s' if moderate_congestion_edges > 1 else ''}")
         else:
-            explanation_parts.append("it avoids even worse congestion on shorter alternatives")
-        if wait_impact:
-            explanation_parts.append(f"it limits destination queue exposure to about {wait_impact:.1f} minutes")
+            explanation_parts.append("keeps you on clear concourses")
+        if wait_impact >= 1:
+            explanation_parts.append(f"saves about {wait_impact:.0f} minutes of queue exposure")
+        if time_saved >= 1:
+            explanation_parts.append(f"is less crowded than the shortest route by roughly {time_saved:.0f} effort-minutes")
         if accessible:
-            explanation_parts.append("it stays on accessible paths")
-        selection_reason = "Selected because " + ", ".join(explanation_parts) + "."
+            explanation_parts.append("stays on accessible paths")
+        selection_reason = ". ".join(part[:1].upper() + part[1:] for part in explanation_parts) + "."
 
         return {
             "path": path,
