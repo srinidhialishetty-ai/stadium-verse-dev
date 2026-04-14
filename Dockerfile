@@ -1,9 +1,11 @@
 FROM node:22-bookworm AS frontend-build
 WORKDIR /app/frontend
+
 COPY frontend/package*.json ./
-RUN npm install && chmod -R +x node_modules/.bin
+RUN npm install
+
 COPY frontend/ ./
-RUN npm run build
+RUN npx vite build
 
 FROM python:3.12-slim
 WORKDIR /app
