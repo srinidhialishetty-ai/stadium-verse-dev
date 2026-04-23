@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import React, { Suspense, useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Billboard, Html, OrbitControls, RoundedBox, Tube, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
@@ -110,38 +110,85 @@ function Label({ text, position, variant = 'default', distanceFactor = 14 }) {
   )
 }
 
-function StadiumSeat({ position, rotation, highlighted, dimmed }) {
-  const baseOpacity = dimmed ? 0.18 : 0.96
+function buildSeatTransforms(seats, offset) {
+  const axis = new THREE.Vector3(0, 1, 0)
+  return seats.map(({ position, rotation }) => {
+    const translated = new THREE.Vector3(...offset).applyAxisAngle(axis, rotation)
+    return {
+      position: [position[0] + translated.x, position[1] + translated.y, position[2] + translated.z],
+      rotation
+    }
+  })
+}
+
+function InstancedSeatSet({ seats, highlighted, dimmed }) {
+  const baseRef = useRef(null)
+  const backRef = useRef(null)
+  const leftLegRef = useRef(null)
+  const rightLegRef = useRef(null)
+  const tempObject = useMemo(() => new THREE.Object3D(), [])
+
+  const transforms = useMemo(
+    () => ({
+      base: buildSeatTransforms(seats, [0, 0.22, -0.16]),
+      back: buildSeatTransforms(seats, [0, 0.58, -0.36]),
+      leftLeg: buildSeatTransforms(seats, [-0.2, 0.1, -0.16]),
+      rightLeg: buildSeatTransforms(seats, [0.2, 0.1, -0.16])
+    }),
+    [seats]
+  )
+
+  useEffect(() => {
+    const assignMatrices = (ref, items) => {
+      if (!ref.current) return
+      items.forEach((item, index) => {
+        tempObject.position.set(...item.position)
+        tempObject.rotation.set(0, item.rotation, 0)
+        tempObject.updateMatrix()
+        ref.current.setMatrixAt(index, tempObject.matrix)
+      })
+      ref.current.instanceMatrix.needsUpdate = true
+    }
+
+    assignMatrices(baseRef, transforms.base)
+    assignMatrices(backRef, transforms.back)
+    assignMatrices(leftLegRef, transforms.leftLeg)
+    assignMatrices(rightLegRef, transforms.rightLeg)
+  }, [tempObject, transforms])
+
+  const seatOpacity = dimmed ? 0.18 : 0.96
+  const legOpacity = dimmed ? 0.14 : 0.9
+
   return (
-    <group position={position} rotation={[0, rotation, 0]}>
-      <mesh position={[0, 0.22, -0.16]}>
+    <group>
+      <instancedMesh ref={baseRef} args={[null, null, seats.length]}>
         <boxGeometry args={[0.56, 0.14, 0.62]} />
         <meshStandardMaterial
           color={highlighted ? '#d7f8ff' : '#87aef8'}
           emissive={highlighted ? '#8ff2ff' : '#2f4f91'}
           emissiveIntensity={highlighted ? 0.9 : 0.18}
           transparent
-          opacity={baseOpacity}
+          opacity={seatOpacity}
         />
-      </mesh>
-      <mesh position={[0, 0.58, -0.36]}>
+      </instancedMesh>
+      <instancedMesh ref={backRef} args={[null, null, seats.length]}>
         <boxGeometry args={[0.56, 0.54, 0.12]} />
         <meshStandardMaterial
           color={highlighted ? '#b9f2ff' : '#769ce8'}
           emissive={highlighted ? '#7eeaff' : '#234684'}
           emissiveIntensity={highlighted ? 0.75 : 0.16}
           transparent
-          opacity={baseOpacity}
+          opacity={seatOpacity}
         />
-      </mesh>
-      <mesh position={[-0.2, 0.1, -0.16]}>
+      </instancedMesh>
+      <instancedMesh ref={leftLegRef} args={[null, null, seats.length]}>
         <boxGeometry args={[0.06, 0.24, 0.06]} />
-        <meshStandardMaterial color="#5a6e8f" transparent opacity={dimmed ? 0.14 : 0.9} />
-      </mesh>
-      <mesh position={[0.2, 0.1, -0.16]}>
+        <meshStandardMaterial color="#5a6e8f" transparent opacity={legOpacity} />
+      </instancedMesh>
+      <instancedMesh ref={rightLegRef} args={[null, null, seats.length]}>
         <boxGeometry args={[0.06, 0.24, 0.06]} />
-        <meshStandardMaterial color="#5a6e8f" transparent opacity={dimmed ? 0.14 : 0.9} />
-      </mesh>
+        <meshStandardMaterial color="#5a6e8f" transparent opacity={legOpacity} />
+      </instancedMesh>
     </group>
   )
 }
@@ -209,30 +256,46 @@ function ZoneImagePanel({ imageType, position, width = 9.4, height = 5.8, dimmed
 }
 
 function RouteMarker({ routePoints, guidedMode, onComplete }) {
-  const [progress, setProgress] = useState(0)
+  const markerRef = useRef(null)
+  const progressRef = useRef(0)
   const completedRef = useRef(false)
 
   useEffect(() => {
-    setProgress(0)
+    progressRef.current = 0
     completedRef.current = false
+
+    if (markerRef.current) {
+      const [x, y, z] = routePoints.length ? routePoints[0] : [0, 0, 0]
+      markerRef.current.position.set(x, y + 1.6, z)
+      markerRef.current.visible = routePoints.length > 0
+    }
   }, [routePoints, guidedMode])
 
   useFrame((_, delta) => {
-    if (!guidedMode || routePoints.length < 2 || completedRef.current) return
-    setProgress((current) => {
-      const next = Math.min(1, current + delta * 0.15)
-      if (next >= 1 && !completedRef.current) {
-        completedRef.current = true
-        onComplete?.()
-      }
-      return next
-    })
+    const marker = markerRef.current
+    if (!marker || !routePoints.length) return
+
+    if (!guidedMode || routePoints.length < 2) {
+      const [x, y, z] = routePoints[0]
+      marker.position.set(x, y + 1.6, z)
+      return
+    }
+
+    if (completedRef.current) return
+
+    const next = Math.min(1, progressRef.current + delta * 0.15)
+    progressRef.current = next
+    const [x, y, z] = interpolateRoute(routePoints, next)
+    marker.position.set(x, y + 1.6, z)
+
+    if (next >= 1 && !completedRef.current) {
+      completedRef.current = true
+      onComplete?.()
+    }
   })
 
-  if (!routePoints.length) return null
-  const [x, y, z] = interpolateRoute(routePoints, progress)
   return (
-    <mesh position={[x, y + 1.6, z]} renderOrder={20}>
+    <mesh ref={markerRef} renderOrder={20} visible={routePoints.length > 0}>
       <sphereGeometry args={[0.9, 24, 24]} />
       <meshBasicMaterial color="#a9f7ff" toneMapped={false} />
     </mesh>
@@ -268,9 +331,9 @@ function StadiumModel({
     return new THREE.CatmullRomCurve3(routePoints.map((point) => new THREE.Vector3(point[0], point[1] + 0.2, point[2])))
   }, [routePoints])
 
-  const gateNodes = nodes.filter((node) => node.type === 'gate')
-  const seatNodes = nodes.filter((node) => node.type === 'seat')
-  const amenityNodes = nodes.filter((node) => ['food', 'restroom', 'vip'].includes(node.type))
+  const gateNodes = useMemo(() => nodes.filter((node) => node.type === 'gate'), [nodes])
+  const seatNodes = useMemo(() => nodes.filter((node) => node.type === 'seat'), [nodes])
+  const amenityNodes = useMemo(() => nodes.filter((node) => ['food', 'restroom', 'vip'].includes(node.type)), [nodes])
   const seatLayouts = useMemo(
     () => seatNodes.map((node) => ({ node, seats: generateSectionSeats(sectionSeatBands[node.id]) })).filter((entry) => entry.seats),
     [seatNodes]
@@ -389,15 +452,7 @@ function StadiumModel({
 
       {continuousSeatLayouts.map(({ key, seats }, bandIndex) => (
         <group key={key}>
-          {seats.map((seat, index) => (
-            <StadiumSeat
-              key={`${key}-${index}`}
-              position={seat.position}
-              rotation={seat.rotation}
-              highlighted={false}
-              dimmed={guidedMode}
-            />
-          ))}
+          <InstancedSeatSet seats={seats} highlighted={false} dimmed={guidedMode} />
           <mesh position={[0, 3.6 + bandIndex * 5.55, 0]}>
             <torusGeometry args={[31.8 + bandIndex * 8.7, 0.28, 12, 120, 5.22]} />
             <meshStandardMaterial color="#294563" emissive="#14345a" emissiveIntensity={0.14} transparent opacity={guidedMode ? 0.22 : 0.8} />
@@ -410,15 +465,7 @@ function StadiumModel({
         const dimmed = guidedMode && !highlighted
         return (
           <group key={node.id}>
-            {seats.map((seat, index) => (
-              <StadiumSeat
-                key={`${node.id}-${index}`}
-                position={seat.position}
-                rotation={seat.rotation}
-                highlighted={highlighted}
-                dimmed={dimmed}
-              />
-            ))}
+            <InstancedSeatSet seats={seats} highlighted={highlighted} dimmed={dimmed} />
             <mesh position={[node.position[0], node.position[1] - 0.45, node.position[2]]} rotation={[0, -Math.atan2(node.position[2], node.position[0]) + Math.PI / 2, 0]}>
               <boxGeometry args={[7.4, 0.3, 4.8]} />
               <meshStandardMaterial color="#2f446b" emissive="#133356" emissiveIntensity={0.18} transparent opacity={dimmed ? 0.24 : 0.95} />
@@ -571,7 +618,11 @@ export default function StadiumScene({
         <div className="legend-row"><span className="swatch busy" /> Heavy</div>
         <p>{guidedMode ? 'Focus mode is active. Non-route zones are dimmed.' : 'Explore freely, then start guided mode when ready.'}</p>
       </div>
-      <Canvas camera={{ position: [0, 55, 78], fov: 42 }}>
+      <Canvas
+        camera={{ position: [0, 55, 78], fov: 42 }}
+        dpr={[1, 1.25]}
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
+      >
         <Suspense fallback={null}>
           <StadiumModel
             nodes={nodes}
