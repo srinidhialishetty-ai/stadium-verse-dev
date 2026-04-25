@@ -22,6 +22,9 @@ export default function App() {
   const [lastAutoRerouteTick, setLastAutoRerouteTick] = useState(-1)
   const previousRouteRef = useRef(null)
   const previousPhaseRef = useRef('Loading')
+  const refreshInFlightRef = useRef(false)
+  const queuedRefreshRef = useRef(null)
+  const lastAdviceSignatureRef = useRef('')
 
   const nonConnectorNodes = useMemo(
     () => graph.nodes.filter((node) => node.type !== 'connector'),
@@ -47,67 +50,99 @@ export default function App() {
     return liveAmenitySummary[0]
   }, [liveAmenitySummary])
 
-  async function refreshRoute(start = selectedStart, end = selectedEnd, isAccessible = accessible, options = {}) {
-    try {
-      const [routeData, foodRecommendations, restroomRecommendations] = await Promise.all([
-        fetchRoute(start, end, isAccessible),
-        fetchRecommendations('food', start, isAccessible),
-        fetchRecommendations('restroom', start, isAccessible)
-      ])
-      const previousRoute = previousRouteRef.current
-      const pathChanged = previousRoute && previousRoute.path.join('|') !== routeData.path.join('|')
-      const congestionJump = previousRoute ? routeData.average_congestion - previousRoute.average_congestion : 0
-      const shouldAutoReroute =
-        options.auto &&
-        (pathChanged || congestionJump > 0.12 || Boolean(routeData.reroute_suggestion))
+  function refreshRoute(start = selectedStart, end = selectedEnd, isAccessible = accessible, options = {}) {
+    const request = { start, end, isAccessible, options }
 
-      setRoute(routeData)
-      setRecommendations([...foodRecommendations.slice(0, 2), ...restroomRecommendations.slice(0, 1)])
-      setError('')
-
-      const advice = await fetchAdvice({
-        start,
-        end,
-        route_summary: routeData.labels.join(' -> '),
-        average_congestion: routeData.average_congestion,
-        phase: graph.phase || 'Live Event',
-        reroute_suggestion: routeData.reroute_suggestion
-      })
-      setAiAdvice(advice)
-
-      const nextAlerts = [...defaultAlerts]
-      if (routeData.reroute_suggestion) nextAlerts.unshift(routeData.reroute_suggestion)
-      if (shouldAutoReroute) {
-        nextAlerts.unshift('Heavy congestion detected ahead. Rerouting to faster path.')
-        nextAlerts.unshift('Switching route to reduce delay.')
-        nextAlerts.unshift(routeData.selection_reason)
-        setLastAutoRerouteTick(graph.tick)
-      } else if (guidedMode && !routeData.reroute_suggestion) {
-        nextAlerts.unshift('You are on the optimal path.')
-      }
-      if (previousPhaseRef.current !== graph.phase) {
-        nextAlerts.unshift(`${graph.phase} is reshaping crowd pressure across the venue.`)
-      }
-      if (graph.phase === 'Halftime Spike') nextAlerts.unshift('Queue spike detected around food and restroom zones.')
-      if (graph.phase === 'Entry Rush') nextAlerts.unshift('Congestion rising near the entry gates and outer concourses.')
-      if (graph.phase === 'Exit Surge') nextAlerts.unshift('Exit pressure is climbing near the south concourse and gate corridors.')
-      if (graph.phase === 'Late Match Dispersal') nextAlerts.unshift('Crowd movement is drifting from seating into the main concourse.')
-      if (foodRecommendations[0] && foodRecommendations[1]) {
-        nextAlerts.unshift(`${foodRecommendations[0].label} is faster than ${foodRecommendations[1].label} right now.`)
-      }
-      if (hottestCorridor && (hottestCorridor.congestion || 0) > 0.72) {
-        nextAlerts.unshift(`Congestion rising near ${hottestCorridor.source.replaceAll('_', ' ')} to ${hottestCorridor.target.replaceAll('_', ' ')}.`)
-      }
-      if (hottestAmenity && (hottestAmenity.sim_wait_time || hottestAmenity.base_wait_time || 0) >= 6) {
-        nextAlerts.unshift(`Queue spike detected at ${hottestAmenity.label}.`)
-      }
-      setAlerts(nextAlerts.slice(0, 4))
-      previousRouteRef.current = routeData
-      previousPhaseRef.current = graph.phase
-    } catch (routeError) {
-      setError(routeError.message)
-      setRoute(null)
+    if (refreshInFlightRef.current) {
+      queuedRefreshRef.current = request
+      return
     }
+
+    refreshInFlightRef.current = true
+
+    const runRefresh = async ({ start, end, isAccessible, options }) => {
+      try {
+        const [routeData, foodRecommendations, restroomRecommendations] = await Promise.all([
+          fetchRoute(start, end, isAccessible),
+          fetchRecommendations('food', start, isAccessible),
+          fetchRecommendations('restroom', start, isAccessible)
+        ])
+        const previousRoute = previousRouteRef.current
+        const pathChanged = previousRoute && previousRoute.path.join('|') !== routeData.path.join('|')
+        const congestionJump = previousRoute ? routeData.average_congestion - previousRoute.average_congestion : 0
+        const shouldAutoReroute =
+          options.auto &&
+          (pathChanged || congestionJump > 0.12 || Boolean(routeData.reroute_suggestion))
+
+        setRoute(routeData)
+        setRecommendations([...foodRecommendations.slice(0, 2), ...restroomRecommendations.slice(0, 1)])
+        setError('')
+
+        const adviceSignature = [
+          start,
+          end,
+          routeData.labels.join(' -> '),
+          routeData.average_congestion.toFixed(3),
+          graph.phase || 'Live Event',
+          routeData.reroute_suggestion || ''
+        ].join('|')
+
+        if (lastAdviceSignatureRef.current !== adviceSignature) {
+          const advice = await fetchAdvice({
+            start,
+            end,
+            route_summary: routeData.labels.join(' -> '),
+            average_congestion: routeData.average_congestion,
+            phase: graph.phase || 'Live Event',
+            reroute_suggestion: routeData.reroute_suggestion
+          })
+          setAiAdvice(advice)
+          lastAdviceSignatureRef.current = adviceSignature
+        }
+
+        const nextAlerts = [...defaultAlerts]
+        if (routeData.reroute_suggestion) nextAlerts.unshift(routeData.reroute_suggestion)
+        if (shouldAutoReroute) {
+          nextAlerts.unshift('Heavy congestion detected ahead. Rerouting to faster path.')
+          nextAlerts.unshift('Switching route to reduce delay.')
+          nextAlerts.unshift(routeData.selection_reason)
+          setLastAutoRerouteTick(graph.tick)
+        } else if (guidedMode && !routeData.reroute_suggestion) {
+          nextAlerts.unshift('You are on the optimal path.')
+        }
+        if (previousPhaseRef.current !== graph.phase) {
+          nextAlerts.unshift(`${graph.phase} is reshaping crowd pressure across the venue.`)
+        }
+        if (graph.phase === 'Halftime Spike') nextAlerts.unshift('Queue spike detected around food and restroom zones.')
+        if (graph.phase === 'Entry Rush') nextAlerts.unshift('Congestion rising near the entry gates and outer concourses.')
+        if (graph.phase === 'Exit Surge') nextAlerts.unshift('Exit pressure is climbing near the south concourse and gate corridors.')
+        if (graph.phase === 'Late Match Dispersal') nextAlerts.unshift('Crowd movement is drifting from seating into the main concourse.')
+        if (foodRecommendations[0] && foodRecommendations[1]) {
+          nextAlerts.unshift(`${foodRecommendations[0].label} is faster than ${foodRecommendations[1].label} right now.`)
+        }
+        if (hottestCorridor && (hottestCorridor.congestion || 0) > 0.72) {
+          nextAlerts.unshift(`Congestion rising near ${hottestCorridor.source.replaceAll('_', ' ')} to ${hottestCorridor.target.replaceAll('_', ' ')}.`)
+        }
+        if (hottestAmenity && (hottestAmenity.sim_wait_time || hottestAmenity.base_wait_time || 0) >= 6) {
+          nextAlerts.unshift(`Queue spike detected at ${hottestAmenity.label}.`)
+        }
+        setAlerts(nextAlerts.slice(0, 4))
+        previousRouteRef.current = routeData
+        previousPhaseRef.current = graph.phase
+      } catch (routeError) {
+        setError(routeError.message)
+        setRoute(null)
+      } finally {
+        refreshInFlightRef.current = false
+        if (queuedRefreshRef.current) {
+          const nextRequest = queuedRefreshRef.current
+          queuedRefreshRef.current = null
+          refreshRoute(nextRequest.start, nextRequest.end, nextRequest.isAccessible, nextRequest.options)
+        }
+      }
+    }
+
+    void runRefresh(request)
   }
 
   function handleGuidanceComplete() {
